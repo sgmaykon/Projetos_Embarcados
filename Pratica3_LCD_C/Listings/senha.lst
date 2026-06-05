@@ -1,0 +1,317 @@
+C51 COMPILER V9.60.7.0   SENHA                                                             05/30/2026 17:18:00 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE SENHA
+OBJECT MODULE PLACED IN .\Objects\senha.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE senha.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\sen
+                    -ha.lst) TABS(2) OBJECT(.\Objects\senha.obj)
+
+line level    source
+
+   1          #include <reg51.h>
+   2          
+   3          // Definições de pinos
+   4          sbit RS = P1^3;
+   5          sbit EN = P1^2;
+   6          sbit Display = P0^7;
+   7          
+   8          // Teclado - Linhas
+   9          sbit Row0 = P0^3;
+  10          sbit Row1 = P0^2;
+  11          sbit Row2 = P0^1;
+  12          sbit Row3 = P0^0;
+  13          
+  14          // Teclado - Colunas
+  15          sbit Col0 = P0^4;
+  16          sbit Col1 = P0^5;
+  17          sbit Col2 = P0^6;
+  18          
+  19          // Flags e variáveis globais
+  20          bit KeyPressFlag = 0;
+  21          bit CorrectFlag = 0;
+  22          unsigned char KeyBuffer[4];
+  23          unsigned char KeyIndex = 4;  // Contador de dígitos ao contrário (r0)
+  24          unsigned char *BufferPtr;    // Ponteiro para o buffer (r1)
+  25          
+  26          // Tabela da senha
+  27          unsigned char code Password[] = {'4','0','4','6'};
+  28          
+  29          // Strings
+  30          unsigned char code intro[] = "Senha:";
+  31          unsigned char code texto1[] = "Access Granted";
+  32          unsigned char code texto2[] = "ERROU KKK";
+  33          
+  34          // Protótipos de funções
+  35          void delay(void);
+  36          void delay_longo(void);
+  37          void clk(void);
+  38          void FuncS(void);
+  39          void DispC(void);
+  40          void EntryMode(void);
+  41          void SendChar(unsigned char c);
+  42          void PrintString(unsigned char *str);
+  43          void TrocaLinha2(void);
+  44          unsigned char ScanKey(void);
+  45          void ESPSOL(void);
+  46          void Initial(void);
+  47          void Compare(void);
+  48          
+  49          // Função de delay curto
+  50          void delay(void) {
+  51   1          unsigned char r7 = 0x10;
+  52   1          while(r7-- > 0);
+  53   1      }
+  54          
+C51 COMPILER V9.60.7.0   SENHA                                                             05/30/2026 17:18:00 PAGE 2   
+
+  55          // Função de delay longo
+  56          void delay_longo(void) {
+  57   1          unsigned char r7, B;
+  58   1          r7 = 0xFF;
+  59   1          B = 0xFF;
+  60   1          while(B-- > 0) {
+  61   2              r7 = 0xFF;
+  62   2              while(r7-- > 0);
+  63   2          }
+  64   1      }
+  65          
+  66          // Pulso do clock (Enable)
+  67          void clk(void) {
+  68   1          EN = 1;
+  69   1          EN = 0;
+  70   1      }
+  71          
+  72          // Configuração inicial do LCD - Function Set
+  73          void FuncS(void) {
+  74   1          RS = 0;
+  75   1          P1 = (P1 & 0x0F) | 0x20;  // DAT = 02h
+  76   1          clk();
+  77   1          delay();
+  78   1          
+  79   1          clk();
+  80   1          delay();
+  81   1          
+  82   1          P1 = (P1 & 0x0F) | 0x80;  // DAT = 08h
+  83   1          clk();
+  84   1          delay();
+  85   1      }
+  86          
+  87          // Display Control
+  88          void DispC(void) {
+  89   1          RS = 0;
+  90   1          P1 = (P1 & 0x0F) | 0x00;  // DAT = 00h
+  91   1          clk();
+  92   1          P1 = (P1 & 0x0F) | 0xF0;  // DAT = F0h
+  93   1          clk();
+  94   1          delay();
+  95   1      }
+  96          
+  97          // Entry Mode
+  98          void EntryMode(void) {
+  99   1          RS = 0;
+ 100   1          P1 = (P1 & 0x0F) | 0x00;  // DAT = 00h
+ 101   1          clk();
+ 102   1          P1 = (P1 & 0x0F) | 0x60;  // DAT = 06h
+ 103   1          clk();
+ 104   1          delay();
+ 105   1      }
+ 106          
+ 107          // Envia caractere para o LCD
+ 108          void SendChar(unsigned char c) {
+ 109   1          unsigned char temp;
+ 110   1          
+ 111   1          // Envia nibble alto
+ 112   1          temp = P1 & 0x0F;
+ 113   1          temp |= (c & 0xF0);
+ 114   1          P1 = temp;
+ 115   1          clk();
+ 116   1          
+C51 COMPILER V9.60.7.0   SENHA                                                             05/30/2026 17:18:00 PAGE 3   
+
+ 117   1          // Envia nibble baixo
+ 118   1          temp = P1 & 0x0F;
+ 119   1          temp |= ((c << 4) & 0xF0);
+ 120   1          P1 = temp;
+ 121   1          clk();
+ 122   1          delay();
+ 123   1      }
+ 124          
+ 125          // Imprime string
+ 126          void PrintString(unsigned char *str) {
+ 127   1          unsigned char c;
+ 128   1          while(c = *str++) {
+ 129   2              RS = 1;
+ 130   2              SendChar(c);
+ 131   2          }
+ 132   1      }
+ 133          
+ 134          // Pula linha no LCD
+ 135          void TrocaLinha2(void) {
+ 136   1          RS = 0;
+ 137   1          P1 = (P1 & 0x0F) | 0xC0;  // DAT = C0h
+ 138   1          clk();
+ 139   1          delay();
+ 140   1      }
+ 141          
+ 142          // Delay para debounce do teclado
+ 143          void ESPSOL(void) {
+ 144   1          // Espera soltar a tecla
+ 145   1          while((P0 & 0x70) != 0x70);
+ 146   1          
+ 147   1          // Timer 0 para delay
+ 148   1          TMOD = 0x01;
+ 149   1          TH0 = 0x8A;
+ 150   1          TL0 = 0xCF;
+ 151   1          TR0 = 1;
+ 152   1          while(!TF0);
+ 153   1          TR0 = 0;
+ 154   1          TF0 = 0;
+ 155   1      }
+ 156          
+ 157          // Escaneia o teclado
+ 158          unsigned char ScanKey(void) {
+ 159   1          unsigned char key = 0;
+ 160   1          
+ 161   1          while(1) {
+ 162   2              KeyPressFlag = 0;
+ 163   2              
+ 164   2              // Verifica linha 0
+ 165   2              Row0 = 0;
+ 166   2              Row1 = 1;
+ 167   2              Row2 = 1;
+ 168   2              Row3 = 1;
+ 169   2              if(!Col0) { key = '3'; KeyPressFlag = 1; }
+ 170   2              else if(!Col1) { key = '2'; KeyPressFlag = 1; }
+ 171   2              else if(!Col2) { key = '1'; KeyPressFlag = 1; }
+ 172   2              Row0 = 1;
+ 173   2              if(KeyPressFlag) break;
+ 174   2              
+ 175   2              // Verifica linha 1
+ 176   2              Row0 = 1;
+ 177   2              Row1 = 0;
+ 178   2              Row2 = 1;
+C51 COMPILER V9.60.7.0   SENHA                                                             05/30/2026 17:18:00 PAGE 4   
+
+ 179   2              Row3 = 1;
+ 180   2              if(!Col0) { key = '6'; KeyPressFlag = 1; }
+ 181   2              else if(!Col1) { key = '5'; KeyPressFlag = 1; }
+ 182   2              else if(!Col2) { key = '4'; KeyPressFlag = 1; }
+ 183   2              Row1 = 1;
+ 184   2              if(KeyPressFlag) break;
+ 185   2              
+ 186   2              // Verifica linha 2
+ 187   2              Row0 = 1;
+ 188   2              Row1 = 1;
+ 189   2              Row2 = 0;
+ 190   2              Row3 = 1;
+ 191   2              if(!Col0) { key = '9'; KeyPressFlag = 1; }
+ 192   2              else if(!Col1) { key = '8'; KeyPressFlag = 1; }
+ 193   2              else if(!Col2) { key = '7'; KeyPressFlag = 1; }
+ 194   2              Row2 = 1;
+ 195   2              if(KeyPressFlag) break;
+ 196   2              
+ 197   2              // Verifica linha 3
+ 198   2              Row0 = 1;
+ 199   2              Row1 = 1;
+ 200   2              Row2 = 1;
+ 201   2              Row3 = 0;
+ 202   2              if(!Col0) { key = '#'; KeyPressFlag = 1; }
+ 203   2              else if(!Col1) { key = '0'; KeyPressFlag = 1; }
+ 204   2              else if(!Col2) { key = '*'; KeyPressFlag = 1; }
+ 205   2              Row3 = 1;
+ 206   2              if(KeyPressFlag) break;
+ 207   2          }
+ 208   1          
+ 209   1          // Debounce e delay
+ 210   1          ESPSOL();
+ 211   1          
+ 212   1          // Armazena no buffer se ainda houver espaço
+ 213   1          if(KeyIndex > 0) {
+ 214   2              *BufferPtr = key;
+ 215   2              BufferPtr++;
+ 216   2              KeyIndex--;
+ 217   2          }
+ 218   1          
+ 219   1          return key;
+ 220   1      }
+ 221          
+ 222          // Compara a senha digitada com a senha correta
+ 223          void Compare(void) {
+ 224   1          unsigned char i;
+ 225   1          unsigned char *p = (unsigned char *)0x30;  // Buffer na RAM
+ 226   1          
+ 227   1          for(i = 0; i < 4; i++) {
+ 228   2              if(*p != Password[i]) {
+ 229   3                  // Senha incorreta
+ 230   3                  TrocaLinha2();
+ 231   3                  PrintString(texto2);
+ 232   3                  
+ 233   3                  // Reinicia variáveis
+ 234   3                  KeyIndex = 4;
+ 235   3                  BufferPtr = (unsigned char *)0x30;
+ 236   3                  
+ 237   3                  // Delay longo
+ 238   3                  delay_longo();
+ 239   3                  delay_longo();
+ 240   3                  delay_longo();
+C51 COMPILER V9.60.7.0   SENHA                                                             05/30/2026 17:18:00 PAGE 5   
+
+ 241   3                  delay_longo();
+ 242   3                  delay_longo();
+ 243   3                  return;
+ 244   3              }
+ 245   2              p++;
+ 246   2          }
+ 247   1          
+ 248   1          // Senha correta
+ 249   1          TrocaLinha2();
+ 250   1          PrintString(texto1);
+ 251   1          while(1);  // Loop infinito
+ 252   1      }
+ 253          
+ 254          // Inicialização
+ 255          void Initial(void) {
+ 256   1          PrintString(intro);
+ 257   1      }
+ 258          
+ 259          // Função principal
+ 260          void main(void) {
+ 261   1          unsigned char key;
+ 262   1          
+ 263   1          Display = 0;  // Desliga display (P0.7)
+ 264   1          KeyIndex = 4;  // Contador de dígitos
+ 265   1          CorrectFlag = 0;
+ 266   1          BufferPtr = (unsigned char *)0x30;  // Ponteiro para RAM
+ 267   1          
+ 268   1          // Inicialização do LCD
+ 269   1          FuncS();
+ 270   1          DispC();
+ 271   1          EntryMode();
+ 272   1          Initial();
+ 273   1          
+ 274   1          // Loop principal
+ 275   1          while(1) {
+ 276   2              key = ScanKey();
+ 277   2              RS = 1;
+ 278   2              SendChar(key);
+ 279   2              
+ 280   2              if(key == '#') break;
+ 281   2          }
+ 282   1          
+ 283   1          // Fim do programa
+ 284   1          while(1);
+ 285   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    572    ----
+   CONSTANT SIZE    =     36    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      8       6
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

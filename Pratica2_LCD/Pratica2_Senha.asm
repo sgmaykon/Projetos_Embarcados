@@ -1,0 +1,477 @@
+org 0h;
+
+RS Equ p1.3
+EN Equ P1.2
+KeyPressFlag Equ f0
+CorrectFlag Equ r5
+
+; A ordem importa...
+
+;rotina de limpeza dos pinos
+;Pin to key map
+; usar EQU pra renomear
+;Usando r2 para guardar strings
+; ClearPins:
+
+; Senha
+; A byte sequence tem que ser a mesma.
+; Cada caracter pressionado adiciona um valor na byte sequence.
+
+
+; Não tem instrução de comparação...
+; Vou fazer um and dos dois valores
+Main:
+	;CALL SendChar
+	clr p0.7 ; desliga o display
+	mov r0, #04h ; Contador de digitos ao contrario
+	mov CorrectFlag, #00h
+	mov r4, #00h
+	mov R1, #30h
+	Call FuncS
+	Call DispC
+	Call EntryMode
+    Call initial
+
+Next:
+	clr KeyPressFlag
+
+	Call Scankey
+	setb RS
+	mov A, #0
+	mov A, r2
+	call sendchar
+	cjne r2, #'#', Next
+;Dat Porta P1, pinos 7,6,5,4
+
+Fim:
+	sjmp Fim
+
+FuncS:
+	;DAT=02h
+	clr RS
+	clr p1.6
+	clr p1.7
+	clr p1.4
+	setB p1.5
+	CALL clk
+	CALL delay
+    
+	call clk
+	call delay
+
+	;DAT = 04h ou 8h?
+	clr p1.4
+	clr p1.5
+	clr p1.6
+	setb p1.7
+	call clk
+	call delay
+    
+	;SETB P1.7
+	;CLR P1.6
+	;CLR P1.5
+	;CLR P1.4
+	;CALL clk
+	;CALL delay
+RET
+
+;Dat Porta P1, pinos 7,6,5, 4
+DispC:
+	clr RS
+	clr p1.5
+	clr p1.6
+	clr p1.7
+	clr p1.4
+	call clk
+	setb p1.5
+	setb p1.6
+	setb p1.7
+	setb p1.4
+	call clk
+	call Delay
+ret
+
+EntryMode:
+;06h
+; 0000 0110
+	clr rs
+	clr p1.5
+	clr p1.6
+	clr p1.7
+	clr p1.4
+	call clk
+	; desloca pro lado... dat 08
+	setb p1.6
+	setb p1.5
+	clr p1.4
+	clr p1.7
+	call clk
+	call delay
+ret
+
+clk:
+	setb EN
+	clr EN
+ret
+
+delay:
+	mov r7, #010h
+here:
+	djnz r7, here
+ret
+
+
+delay_longo:
+    mov r7, #0ffh
+    mov B, #0ffh
+here2:
+	djnz r7, again
+again:
+    djnz B, here2
+
+ret
+
+
+;Verifica Linhas
+ScanKey:
+	clr p0.3
+	CALL IDCode0
+	setB p0.3
+	JB KeyPressFlag, Done
+    
+	clr p0.2
+	CALL IDCode1
+	setB p0.2
+	JB KeyPressFlag, Done
+    
+	clr p0.1
+	CALL IDCode2
+	setB p0.1
+	JB KeyPressFlag, Done
+
+	clr p0.0
+	CALL IDCode3
+	setB p0.0
+	JB KeyPressFlag, Done
+
+	jmp ScanKey
+ret
+
+Done:
+	;clr KeyPressFlag
+	;call delay
+	call espsol
+	mov A, r0
+	jz Compare
+ret
+
+Compare:
+	setb RS
+	mov A, #0
+	mov A, r2
+	call sendchar
+ ;If senha == digitado
+ ; Tira da pilha, poe em 4 regs
+ ; Compara digito a digito?
+	mov R1, #30h	 
+	mov DPTR, #Senha
+	mov R2, #04h
+    
+Compare2:
+	mov dptr, #senha
+	clr A
+	movc A, @A+DPTR
+	mov B, @R1
+	cjne A, B , Wrong
+	inc R1
+	inc dptr
+	clr A
+
+	movc A, @A+DPTR
+	mov B, @r1
+	cjne A, B, Wrong
+	inc R1
+	inc dptr
+	clr A
+
+	movc A, @A+DPTR
+	mov B, @r1
+	cjne A, B, Wrong
+	inc R1
+	inc dptr
+	clr A
+
+	movc A, @A+DPTR
+	mov B, @r1
+	cjne A, B, Wrong
+	inc R1
+	clr A
+	jmp Correct
+
+
+Initial:
+	mov DPTR, #intro ; "Access Granted"
+	call PrintString   
+	ret
+Correct:
+	call TrocaLinha2 ;
+	mov DPTR, #texto1 ; "Access Granted"
+	call PrintString   
+	jmp Fim     	 
+
+
+Wrong:
+	call TrocaLinha2  ;
+	mov DPTR, #texto2 ; "ERROU KKK"
+	call PrintString
+    
+	mov R0, #04h  	; Reinicia contador de dígitos
+	mov R1, #30h  	; Reinicia ponteiro da RAM
+    jmp delay_longo
+    jmp delay_longo
+    jmp delay_longo
+    jmp delay_longo
+    jmp delay_longo
+	jmp Next    	 
+
+ret
+
+TrocaLinha2:
+	clr rs
+	clr p1.5
+	setb p1.6
+	setb p1.7
+	clr p1.4
+	call clk
+	call delay
+
+	clr p1.6
+	clr p1.5
+	clr p1.4
+	clr p1.7
+	call clk
+	call delay
+ret
+
+PrintString:
+	clr A
+	movc A, @A+DPTR  
+	jz Print_Done	 
+	mov R2, A    	 
+	setb RS      	 
+	call sendchar
+	inc DPTR      	; Próximo caractere
+	sjmp PrintString
+Print_Done:
+	ret
+
+    
+; Verifica Colunas
+IDCode0:
+	JNB p0.4, KeyCode03
+	JNB p0.5, KeyCode13
+	JNB p0.6, KeyCode23
+ret
+
+KeyCode03:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'3'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+    
+	ret
+
+KeyCode13:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'2'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode23:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'1'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+
+IDCode1:
+	JNB p0.4, KeyCode02
+	JNB p0.5, KeyCode12
+	JNB p0.6, KeyCode22
+ret
+
+KeyCode02:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'6'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode12:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'5'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode22:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'4'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+IDCode2:
+	JNB p0.4, KeyCode01
+	JNB p0.5, KeyCode11
+	JNB p0.6, KeyCode21
+ret
+
+KeyCode01:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'9'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode11:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'8'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode21:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'7'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+IDCode3:
+	JNB p0.4, KeyCode00
+	JNB p0.5, KeyCode10
+	JNB p0.6, KeyCode20
+ret
+
+KeyCode00:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'#'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+	ret
+
+KeyCode10:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'0'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+ret
+
+KeyCode20:
+	setb KeyPressFlag
+	call ESPSOL
+	mov r2, #'*'
+	mov A, r2
+	mov @R1, A
+	inc R1
+	dec r0
+ret
+
+SendChar:
+	mov C, acc.7
+	mov p1.7, C
+
+	mov C, acc.6
+	mov p1.6, C
+
+	mov C, acc.5
+	mov p1.5, C
+
+	mov C, acc.4
+	mov p1.4, C
+
+	call clk
+	mov C, acc.3
+	mov p1.7 , C
+	mov C, acc.2
+
+	MOV C, ACC.3
+	MOV P1.7, C
+	MOV C, ACC.2
+	MOV P1.6, C
+	MOV C, ACC.1
+	MOV P1.5, C
+	MOV C, ACC.0
+	MOV P1.4, C
+	CALL clk
+	CALL delay
+	RET
+ret
+
+
+;ESPSOL:
+;	mov A, P0
+;	an1 A, #070h
+;	cjne A, #070h, ESPSOL
+
+ESPSOL:
+mov A, p0
+anl A, #070h
+cjne A, #070h, ESPSOL
+
+mov TMOD, #01h
+;65535 - 30000
+;35535
+;em hexa: #8acf
+mov Th0, #8ah
+mov Tl0, #0cfh
+setb tr0
+jnb tf0, $
+clr tr0
+clr tf0
+
+ret
+
+
+
+Senha: DB '4','0','4','6'
+;34 30 39 36
+intro: DB  'S', 'e', 'n', 'h', 'a', ':' ,0
+texto1: DB 'A','c','e','s','s',' ', 'G','r','a','n','t','e','d',0
+texto2: DB 'E', 'R', 'R', 'O', 'U', 'K', 'K', 'K',0
