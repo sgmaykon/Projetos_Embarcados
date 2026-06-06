@@ -1,0 +1,48 @@
+BL51 BANKED LINKER/LOCATER V6.22.4.0                                                    05/30/2026  20:18:15  PAGE 1
+
+
+BL51 BANKED LINKER/LOCATER V6.22.4.0, INVOKED BY:
+C:\KEIL_V5\C51\BIN\BL51.EXE .\Objects\rex-lcd.obj TO .\Objects\rex-lcd PRINT (.\Listings\rex-lcd.m51) RAMSIZE (256) CODE
+>>  (0X0000-0X1FFF)
+
+
+MEMORY MODEL: SMALL
+
+
+INPUT MODULES INCLUDED:
+  .\Objects\rex-lcd.obj (REX_LCD)
+
+
+LINK MAP OF MODULE:  .\Objects\rex-lcd (REX_LCD)
+
+
+            TYPE    BASE      LENGTH    RELOCATION   SEGMENT NAME
+            -----------------------------------------------------
+
+
+
+OVERLAY MAP OF MODULE:   .\Objects\rex-lcd (REX_LCD)
+
+
+SEGMENT
+  +--> CALLED SEGMENT
+---------------------
+
+
+SYMBOL TABLE OF MODULE:  .\Objects\rex-lcd (REX_LCD)
+
+  VALUE           TYPE          NAME
+  ----------------------------------
+
+  -------         MODULE        REX_LCD
+  C:0000H         SYMBOL        _ICE_DUMMY_
+  -------         ENDMOD        REX_LCD
+
+*** WARNING L10: CANNOT DETERMINE ROOT SEGMENT
+
+******************************************************************************
+* RESTRICTED VERSION WITH 0800H BYTE CODE SIZE LIMIT; USED: 0000H BYTE ( 0%) *
+******************************************************************************
+
+Program Size: data=0.0 xdata=0 code=0
+LINK/LOCATE RUN COMPLETE.  1 WARNING(S),  0 ERROR(S)

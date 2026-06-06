@@ -1,0 +1,484 @@
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE REX_GLCD
+OBJECT MODULE PLACED IN .\Objects\rex-glcd.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE rex-glcd.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\
+                    -rex-glcd.lst) TABS(2) OBJECT(.\Objects\rex-glcd.obj)
+
+line level    source
+
+   1          
+   2          #include <reg52.h>
+   3          
+   4          #define GlcdDataBus P3
+   5          sbit RS  = P2^0;
+   6          sbit RW  = P2^1;
+   7          sbit EN  = P2^2;
+   8          sbit PSB = P2^3;
+   9          sbit RST = P2^5;
+  10          
+  11          typedef unsigned char u8;
+  12          typedef signed char   i8;
+  13          typedef unsigned int  u16;
+  14          
+  15          #define DINO_X     10
+  16          #define DINO_Y     40
+  17          #define JUMP_Y     22
+  18          #define GROUND_Y   56
+  19          #define MAX_OBS    3
+  20          #define CLOUD_Y    4
+  21          
+  22          u8 line_buf[16];
+  23          
+  24          code u8 bit_shr[8] = {128, 64, 32, 16, 8, 4, 2, 1};
+  25          code u8 bit_shl[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+  26          
+  27          void set_px(u8 px) {
+  28   1          if (px < 128) line_buf[px >> 3] |= bit_shr[px & 7];
+  29   1      }
+  30          
+  31          u8 rng_seed = 0x55;
+  32          u8 my_rand() {
+  33   1          rng_seed ^= (rng_seed << 3);
+  34   1          rng_seed ^= (rng_seed >> 5);
+  35   1          rng_seed ^= (rng_seed << 2);
+  36   1          return rng_seed;
+  37   1      }
+  38          
+  39          code u8 bmp_dino[32] = {
+  40              0x03, 0xFF, 0x02, 0xBF, 0x03, 0xFF, 0x03, 0x80,
+  41              0x83, 0x8E, 0xC3, 0xFE, 0xE3, 0xFF, 0xFF, 0xFE,
+  42              0xFF, 0xFE, 0x7F, 0xFE, 0x3F, 0xFC, 0x1F, 0xF0,
+  43              0x07, 0x30, 0x06, 0x30, 0x06, 0x30, 0x07, 0x38
+  44          };
+  45          
+  46          code u8 bmp_cactus[32] = {
+  47              0x00, 0x00, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80,
+  48              0x19, 0x8C, 0x19, 0x8C, 0x19, 0x8C, 0x19, 0x8C,
+  49              0x1F, 0x8C, 0x0F, 0x8C, 0x07, 0xFC, 0x03, 0xF8,
+  50              0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 0x03, 0xC0
+  51          };
+  52          
+  53          code u8 bmp_bird[32] = {
+  54              0x00, 0x00, 0x00, 0x08, 0x00, 0x18, 0x00, 0x38,
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 2   
+
+  55              0x00, 0x78, 0x01, 0xF8, 0x07, 0xF8, 0x1F, 0xF8,
+  56              0x3F, 0xFF, 0x1F, 0xBE, 0x07, 0xF0, 0x03, 0xE0,
+  57              0x01, 0xC0, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00
+  58          };
+  59          
+  60          code u8 bmp_cloud[48] = {
+  61              0x00,0x00,0x00,0x00, 0x00,0x01,0xC0,0x00,
+  62              0x00,0x07,0xF0,0x00, 0x00,0x0F,0xF8,0x00,
+  63              0x00,0x1F,0xFC,0x00, 0x01,0xFF,0xFF,0x80,
+  64              0x03,0xFF,0xFF,0xC0, 0x07,0xFF,0xFF,0xE0,
+  65              0x0F,0xFF,0xFF,0xF0, 0x1F,0xFF,0xFF,0xF8,
+  66              0x0F,0xFF,0xFF,0xF0, 0x00,0x00,0x00,0x00
+  67          };
+  68          
+  69          
+  70          code u8 font5x7[10][5] = {
+  71              {0x3E,0x51,0x49,0x45,0x3E}, {0x00,0x42,0x7F,0x40,0x00},
+  72              {0x42,0x61,0x51,0x49,0x46}, {0x21,0x41,0x45,0x4B,0x31},
+  73              {0x18,0x14,0x12,0x7F,0x10}, {0x27,0x45,0x45,0x45,0x39},
+  74              {0x3C,0x4A,0x49,0x49,0x30}, {0x01,0x71,0x09,0x05,0x03},
+  75              {0x36,0x49,0x49,0x49,0x36}, {0x06,0x49,0x49,0x29,0x1E}
+  76          };
+  77          
+  78          typedef struct {
+  79              u8 x; u8 y; u8 type; u8 active;
+  80          } Obstacle;
+  81          
+  82          Obstacle obs[MAX_OBS];
+  83          
+  84          /* ============================================================
+  85           * VARIÁVEIS GLOBAIS DO JOGO
+  86           * ============================================================
+  87           */
+  88          u8  placar[5];      /* dígitos do placar: [0]=milhar...[4]=unidade */
+  89          
+  90          u8  dino_jump;      /* 1 = dinossauro está no ar                   */
+  91          u8  jump_phase;     /* contador de frames do salto (0-7)           */
+  92          
+  93          u8  game_over;      /* 1 = partida encerrada                       */
+  94          
+  95          u8  phase;          /* flag de inversão de cor (efeito flash)      */
+  96          u8  phase_ctr;      /* contador para alternância de fase           */
+  97          
+  98          u8  speed_ctr;      /* contador para aumento de velocidade         */
+  99          
+ 100          u8  frame_cnt;      /* contador de frames entre obstáculos         */
+ 101          
+ 102          u8  cloud_x;        /* posição horizontal da nuvem                 */
+ 103          
+ 104          u16 tick_period;    /* período do tick em ms (controla velocidade) */
+ 105          
+ 106          
+ 107          
+ 108          void delay_us(u16 us) {
+ 109   1          while (us--) {
+ 110   2          }
+ 111   1      }
+ 112          
+ 113          void delay_ms(u16 ms) {
+ 114   1          u16 i, j;
+ 115   1          for (i = 0; i < ms; i++)
+ 116   1              for (j = 0; j < 120; j++);
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 3   
+
+ 117   1      }
+ 118          
+ 119          /* ============================================================
+ 120           * LEITURA NÃO BLOQUEANTE DO TECLADO
+ 121           * ============================================================
+ 122           */
+ 123          char scanKeyNonBlock() {
+ 124   1          static u8 last_P0 = 0xFF;
+ 125   1          char key = 0;
+ 126   1          u8 curr_P0;
+ 127   1      
+ 128   1          P0 = 0xF7;
+ 129   1          curr_P0 = P0;
+ 130   1      
+ 131   1          if      (!(curr_P0 & 0x10) && (last_P0 & 0x10)) key = '3';
+ 132   1          else if (!(curr_P0 & 0x20) && (last_P0 & 0x20)) key = '2';
+ 133   1      
+ 134   1          last_P0 = curr_P0;
+ 135   1          return key;
+ 136   1      }
+ 137          
+ 138          void glcd_enable() {
+ 139   1          EN = 1;
+ 140   1          delay_us(1);
+ 141   1          EN = 0;
+ 142   1      }
+ 143          
+ 144          void glcd_cmd(u8 cmd) {
+ 145   1          RS = 0; RW = 0; GlcdDataBus = cmd;
+ 146   1          glcd_enable();
+ 147   1          delay_us(5);
+ 148   1      }
+ 149          
+ 150          void glcd_data(u8 dat) {
+ 151   1          RS = 1; RW = 0; GlcdDataBus = dat;
+ 152   1          glcd_enable();
+ 153   1          delay_us(2);
+ 154   1      }
+ 155          
+ 156          /* ============================================================
+ 157           * INICIALIZAÇÃO DO GLCD
+ 158           * ============================================================
+ 159           */
+ 160          void glcd_init() {
+ 161   1          PSB = 1;
+ 162   1          RST = 0; delay_ms(10);
+ 163   1          RST = 1; delay_ms(20);
+ 164   1          glcd_cmd(0x30);
+ 165   1          glcd_cmd(0x0C);
+ 166   1          glcd_cmd(0x01); delay_ms(10);
+ 167   1          glcd_cmd(0x34);
+ 168   1          glcd_cmd(0x36);
+ 169   1      }
+ 170          
+ 171          void glcd_write_line(u8 y, u8 *buf) {
+ 172   1          u8 x;
+ 173   1          if (y < 32) { glcd_cmd(0x80 | y);        glcd_cmd(0x80); }
+ 174   1          else        { glcd_cmd(0x80 | (y - 32));  glcd_cmd(0x88); }
+ 175   1      
+ 176   1          for (x = 0; x < 16; x++) {
+ 177   2              if (phase) glcd_data(~buf[x]);
+ 178   2              else       glcd_data( buf[x]);
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 4   
+
+ 179   2          }
+ 180   1      }
+ 181          
+ 182          void draw_bmp(u8 x, u8 y_curr, u8 obj_y, u8 code *bmp, u8 w_bytes, u8 h) {
+ 183   1          u8 row, col, b, bmp_data, px;
+ 184   1      
+ 185   1          if (y_curr >= obj_y && y_curr < obj_y + h) {
+ 186   2              row = y_curr - obj_y;
+ 187   2              for (col = 0; col < w_bytes; col++) {
+ 188   3                  bmp_data = bmp[(w_bytes == 2 ? (row << 1) : (row << 2)) + col];
+ 189   3                  if (!bmp_data) continue;
+ 190   3                  for (b = 0; b < 8; b++) {
+ 191   4                      if (bmp_data & bit_shr[b]) {
+ 192   5                          px = x + (col << 3) + b;
+ 193   5                          set_px(px);
+ 194   5                      }
+ 195   4                  }
+ 196   3              }
+ 197   2          }
+ 198   1      }
+ 199          
+ 200          /* ============================================================
+ 201           * DESENHO DO PLACAR
+ 202           * ============================================================
+ 203           */
+ 204          void draw_score(u8 y) {
+ 205   1          u8 row, i, col, px, start_x;
+ 206   1      
+ 207   1          if (y >= 2 && y < 9) {
+ 208   2              row = y - 2;
+ 209   2              for (i = 0; i < 5; i++) {
+ 210   3                  start_x = 2 + i * 7;
+ 211   3                  for (col = 0; col < 5; col++) {
+ 212   4                      if (font5x7[placar[i]][col] & bit_shl[row]) {
+ 213   5                          px = start_x + col;
+ 214   5                          set_px(px);
+ 215   5                      }
+ 216   4                  }
+ 217   3              }
+ 218   2          }
+ 219   1      }
+ 220          
+ 221          void draw_scene() {
+ 222   1          u8 y, i;
+ 223   1      
+ 224   1          for (y = 0; y < 64; y++) {
+ 225   2              for (i = 0; i < 16; i++) line_buf[i] = 0x00;
+ 226   2      
+ 227   2              draw_bmp(cloud_x, y, CLOUD_Y, bmp_cloud, 4, 12);
+ 228   2      
+ 229   2              if (y == GROUND_Y || y == GROUND_Y + 1) {
+ 230   3                  for (i = 0; i < 16; i++) line_buf[i] = 0xFF;
+ 231   3              }
+ 232   2      
+ 233   2              draw_score(y);
+ 234   2      
+ 235   2              for (i = 0; i < MAX_OBS; i++) {
+ 236   3                  if (!obs[i].active) continue;
+ 237   3                  if (obs[i].type == 0) draw_bmp(obs[i].x, y, 40, bmp_cactus, 2, 16);
+ 238   3                  else                  draw_bmp(obs[i].x, y, 24, bmp_bird,   2, 16);
+ 239   3              }
+ 240   2      
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 5   
+
+ 241   2              if (dino_jump) draw_bmp(DINO_X, y, JUMP_Y, bmp_dino, 2, 16);
+ 242   2              else           draw_bmp(DINO_X, y, DINO_Y, bmp_dino, 2, 16);
+ 243   2      
+ 244   2              glcd_write_line(y, line_buf);
+ 245   2          }
+ 246   1      }
+ 247          
+ 248          void draw_start_screen() {
+ 249   1          u8 y, i;
+ 250   1          for (y = 0; y < 64; y++) {
+ 251   2              for (i = 0; i < 16; i++) line_buf[i] = 0x00;
+ 252   2              draw_bmp(56, y, 18, bmp_dino, 2, 16);
+ 253   2              glcd_write_line(y, line_buf);
+ 254   2          }
+ 255   1      }
+ 256          
+ 257          /* ============================================================
+ 258           * DETECÇÃO DE COLISÃO
+ 259           * ============================================================
+ 260           *
+ 261           * Caixa do dinossauro (hitbox com margem de 2px para
+ 262           * suavizar colisões nos cantos):
+ 263           *   x: [DINO_X+2 .. DINO_X+13]
+ 264           *   y: [dino_y+2 .. dino_y+13]
+ 265           *
+ 266           * Caixa dos obstáculos (16x16 com margem de 2px):
+ 267           *   x: [obs.x+2 .. obs.x+13]
+ 268           *   y: cacto ? [40+2 .. 40+13]
+ 269           *      pássaro ? [24+2 .. 24+13]
+ 270           */
+ 271          u8 check_collision() {
+ 272   1          u8 i;
+ 273   1          u8 dino_y;
+ 274   1          u8 dino_x1, dino_x2, dino_y1, dino_y2;
+ 275   1          u8 obs_x1,  obs_x2,  obs_y1,  obs_y2;
+ 276   1      
+ 277   1          dino_y = dino_jump ? JUMP_Y : DINO_Y;
+ 278   1      
+ 279   1          /* Hitbox do dinossauro com margem de 2px */
+ 280   1          dino_x1 = DINO_X + 2;
+ 281   1          dino_x2 = DINO_X + 13;
+ 282   1          dino_y1 = dino_y + 2;
+ 283   1          dino_y2 = dino_y + 13;
+ 284   1      
+ 285   1          for (i = 0; i < MAX_OBS; i++) {
+ 286   2              if (!obs[i].active) continue;
+ 287   2      
+ 288   2              /* Hitbox do obstáculo com margem de 2px */
+ 289   2              obs_x1 = obs[i].x + 2;
+ 290   2              obs_x2 = obs[i].x + 13;
+ 291   2      
+ 292   2              if (obs[i].type == 0) { /* cacto — no chão */
+ 293   3                  obs_y1 = 40 + 2;
+ 294   3                  obs_y2 = 40 + 13;
+ 295   3              } else {                /* pássaro — no ar */
+ 296   3                  obs_y1 = 24 + 2;
+ 297   3                  obs_y2 = 24 + 13;
+ 298   3              }
+ 299   2      
+ 300   2              /* AABB: colisão se os retângulos se sobrepõem nos dois eixos */
+ 301   2              if (dino_x1 <= obs_x2 && dino_x2 >= obs_x1 &&
+ 302   2                  dino_y1 <= obs_y2 && dino_y2 >= obs_y1) {
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 6   
+
+ 303   3                  return 1;
+ 304   3              }
+ 305   2          }
+ 306   1          return 0;
+ 307   1      }
+ 308          
+ 309          /* ============================================================
+ 310           * GERAÇÃO DE OBSTÁCULOS
+ 311           * ============================================================
+ 312           *
+ 313           * Ativa o primeiro slot livre do vetor obs[].
+ 314           * O tipo é sorteado: 0 = cacto, 1 = pássaro.
+ 315           * O obstáculo sempre nasce na borda direita (x = 120).
+ 316           */
+ 317          void spawn_obstacle() {
+ 318   1          u8 i;
+ 319   1          for (i = 0; i < MAX_OBS; i++) {
+ 320   2              if (!obs[i].active) {
+ 321   3                  obs[i].active = 1;
+ 322   3                  obs[i].x      = 120;
+ 323   3                  obs[i].type   = my_rand() & 1;  /* bit menos significativo: 0 ou 1 */
+ 324   3                  break;
+ 325   3              }
+ 326   2          }
+ 327   1      }
+ 328          
+ 329          /* ============================================================
+ 330           * ATUALIZAÇÃO DO PLACAR
+ 331           * ============================================================
+ 332           *
+ 333           * O placar é um contador de 5 dígitos decimais armazenado
+ 334           * em placar[0..4], onde placar[4] é a unidade.
+ 335           * Incrementa 1 ponto a cada chamada (1 tick = 1 ponto).
+ 336           */
+ 337          void add_score() {
+ 338   1          /* Incrementa unidade e propaga carry para dígitos superiores */
+ 339   1          placar[4]++;
+ 340   1          if (placar[4] > 9) { placar[4] = 0; placar[3]++; }
+ 341   1          if (placar[3] > 9) { placar[3] = 0; placar[2]++; }
+ 342   1          if (placar[2] > 9) { placar[2] = 0; placar[1]++; }
+ 343   1          if (placar[1] > 9) { placar[1] = 0; placar[0]++; }
+ 344   1          if (placar[0] > 9) {                placar[0] = 0; } /* overflow ? zera */
+ 345   1      }
+ 346          
+ 347          
+ 348          void game_tick() {
+ 349   1          u8 i;
+ 350   1      
+ 351   1          /* Move obstáculos para a esquerda */
+ 352   1          for (i = 0; i < MAX_OBS; i++) {
+ 353   2              if (obs[i].active) {
+ 354   3                  if (obs[i].x <= 4) obs[i].active = 0;
+ 355   3                  else               obs[i].x -= 4;
+ 356   3              }
+ 357   2          }
+ 358   1      
+ 359   1          /* Move nuvem lentamente */
+ 360   1          if (cloud_x <= 1) cloud_x = 120;
+ 361   1          else              cloud_x -= 1;
+ 362   1      
+ 363   1          /* Spawna novo obstáculo quando o intervalo aleatório expira */
+ 364   1          frame_cnt++;
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 7   
+
+ 365   1          if (frame_cnt >= 18 + (my_rand() & 7)) {
+ 366   2              spawn_obstacle();
+ 367   2              frame_cnt = 0;
+ 368   2          }
+ 369   1      
+ 370   1          /* Controla duração do salto */
+ 371   1          if (dino_jump) {
+ 372   2              jump_phase++;
+ 373   2              if (jump_phase >= 8) { dino_jump = 0; jump_phase = 0; }
+ 374   2          }
+ 375   1      
+ 376   1          add_score();
+ 377   1      
+ 378   1          /* Alterna inversão de cor a cada 100 ticks */
+ 379   1          if (++phase_ctr >= 100) { phase = !phase; phase_ctr = 0; }
+ 380   1      
+ 381   1          /* Aumenta velocidade a cada 50 ticks (diminui tick_period) */
+ 382   1          if (++speed_ctr >= 50) {
+ 383   2              speed_ctr = 0;
+ 384   2              if (tick_period > 25) tick_period >>= 1;
+ 385   2          }
+ 386   1      
+ 387   1          if (check_collision()) game_over = 1;
+ 388   1          if (!game_over) draw_scene();
+ 389   1      }
+ 390          
+ 391          void game_init() {
+ 392   1          u8 i;
+ 393   1          for (i = 0; i < 5; i++) placar[i] = 0;
+ 394   1      
+ 395   1          tick_period = 100;
+ 396   1          speed_ctr   = 0;
+ 397   1          phase_ctr   = 0;
+ 398   1          dino_jump   = 0;
+ 399   1          jump_phase  = 0;
+ 400   1          game_over   = 0;
+ 401   1          frame_cnt   = 30;   /* começa próximo ao primeiro spawn */
+ 402   1          phase       = 0;
+ 403   1          cloud_x     = 100;
+ 404   1      
+ 405   1          for (i = 0; i < MAX_OBS; i++) obs[i].active = 0;
+ 406   1      }
+ 407          
+ 408          void main() {
+ 409   1          u16 t;
+ 410   1          char key;
+ 411   1      
+ 412   1          glcd_init();
+ 413   1          draw_start_screen();
+ 414   1      
+ 415   1          /* Aguarda tecla '2' para iniciar */
+ 416   1          while (1) {
+ 417   2              key = scanKeyNonBlock();
+ 418   2              if (key == '2') break;
+ 419   2          }
+ 420   1      
+ 421   1          game_init();
+ 422   1          draw_scene();
+ 423   1      
+ 424   1          while (1) {
+ 425   2              /* Reinicia após game over */
+ 426   2              if (game_over) {
+C51 COMPILER V9.60.7.0   REX_GLCD                                                          06/05/2026 22:25:26 PAGE 8   
+
+ 427   3                  phase = 0;
+ 428   3                  draw_start_screen();
+ 429   3                  while (1) {
+ 430   4                      key = scanKeyNonBlock();
+ 431   4                      if (key == '2') { game_init(); draw_scene(); break; }
+ 432   4                  }
+ 433   3              }
+ 434   2      
+ 435   2              /* Loop de tick: varre teclado a cada 1 ms e executa o tick ao final */
+ 436   2              for (t = 0; t < tick_period; t++) {
+ 437   3                  key = scanKeyNonBlock();
+ 438   3                  if (key == '3') {           /* botão de salto */
+ 439   4                      if (!dino_jump) { dino_jump = 1; jump_phase = 0; }
+ 440   4                  }
+ 441   3                  delay_ms(1);
+ 442   3              }
+ 443   2      
+ 444   2              game_tick();
+ 445   2          }
+ 446   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1330    ----
+   CONSTANT SIZE    =    210    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     45      17
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

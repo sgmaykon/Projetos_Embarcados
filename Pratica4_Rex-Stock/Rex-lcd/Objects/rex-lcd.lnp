@@ -1,0 +1,4 @@
+".\Objects\rex-lcd.obj" 
+TO ".\Objects\rex-lcd" 
+PRINT(".\Listings\rex-lcd.m51") RAMSIZE(256) 
+CODE( 0X0000-0X1FFF )
